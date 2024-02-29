@@ -1,0 +1,217 @@
+---
+title: "HW 3"
+author: "Student Name"
+date: "11/27/2023"
+output: 
+  html_document:
+    number_sections: true
+---
+
+# 
+
+In this homework, we will discuss support vector machines and tree-based methods.  I will begin by simulating some data for you to use with SVM. 
+
+```{r}
+library(e1071)
+set.seed(1) 
+x=matrix(rnorm(200*2),ncol=2)
+x[1:100,]=x[1:100,]+2
+x[101:150,]=x[101:150,]-2
+y=c(rep(1,150),rep(2,50))
+dat=data.frame(x=x,y=as.factor(y))
+plot(x, col=y)
+
+```
+
+
+##
+
+Quite clearly, the above data is not linearly separable.  Create a training-testing partition with 100 random observations in the training partition.  Fit an svm on this training data using the radial kernel, and tuning parameters $\gamma=1$, cost $=1$.  Plot the svm on the training data.  
+
+```{r}
+train_indices = sample(1:nrow(dat), 100)
+train_data = dat[train_indices, ]
+test_data = dat[-train_indices, ]
+
+svmfit = svm(y ~ ., data = train_data, kernel = "radial", gamma = 1, cost = 1)
+
+plot(svmfit, train_data)
+```
+
+##
+
+Notice that the above decision boundary is decidedly non-linear.  It seems to perform reasonably well, but there are indeed some misclassifications.  Let's see if increasing the cost ^[Remember this is a parameter that decides how smooth your decision boundary should be] helps our classification error rate.  Refit the svm with the radial kernel, $\gamma=1$, and a cost of 10000.  Plot this svm on the training data. 
+
+```{r}
+
+svm2<- svm(y ~ ., data = train_data, method = "C-classification", kernel = "radial", gamma = 1, cost = 10000)
+
+plot(svm2, train_data)
+
+```
+
+##
+
+It would appear that we are better capturing the training data, but comment on the dangers (if any exist), of such a model. 
+
+*
+Increasing the cost parameter in an SVM model aims to minimize misclassifications by imposing a higher penalty for errors, potentially enhancing accuracy on the training dataset. However, this strategy risks overfitting, where the model excessively adapts to the training data, capturing noise alongside the underlying pattern. Overfitting compromises the model's ability to generalize to unseen data, leading to poor performance on new inputs. Additionally, a high cost parameter can escalate computational demands and make the model overly sensitive to outliers, further skewing its predictive capability.*
+
+##
+
+Create a confusion matrix by using this svm to predict on the current testing partition.  Comment on the confusion matrix.  Is there any disparity in our classification results?    
+
+```{r, eval = FALSE}
+#remove eval = FALSE in above
+table(true=dat[-train,"y"], pred=predict(svm2, newdata=dat[-train,]))
+```
+There is a small disparity in the model's ability to classify the two classes, with a slightly lower precision for class 2. This suggests a bias towards class 2, possibly due to an imbalance in training data or features that more effectively capture class 2 characteristics.
+
+##
+
+Is this disparity because of imbalance in the training/testing partition?  Find the proportion of class `2` in your training partition and see if it is broadly representative of the underlying 25\% of class 2 in the data as a whole.  
+
+```{r}
+
+proportion_class_2_training <- mean(train_data$y == 2)
+proportion_class_2_training
+
+
+```
+
+*Student Response*
+the training data is broadly representative of the underlying class distribution in the dataset. A proportion of 27% compared to an expected 25% is relatively close, indicating that any disparity in classification results might not be solely due to an imbalance in the training/testing partition.
+
+##
+
+Let's try and balance the above to solutions via cross-validation.  Using the `tune` function, pass in the training data, and a list of the following cost and $\gamma$ values: {0.1, 1, 10, 100, 1000} and {0.5, 1,2,3,4}.  Save the output of this function in a variable called `tune.out`.  
+
+```{r}
+
+set.seed(1)
+tuning_grid <- expand.grid(cost = c(0.1, 1, 10, 100, 1000),
+                           gamma = c(0.5, 1, 2, 3, 4))
+
+tune.out <- tune(svm, train.x = x[train, ], train.y = y[train],
+                 kernel = "radial", ranges = tuning_grid, 
+                 data = dat)
+
+# View the tuning results
+summary(tune.out)
+
+```
+
+I will take `tune.out` and use the best model according to error rate to test on our data.  I will report a confusion matrix corresponding to the 100 predictions.  
+
+
+```{r, eval = FALSE}
+
+best_svm_model <- svm(y ~ ., data = train_data, kernel = "radial", cost = 1, gamma = 0.5)
+predictions <- predict(best_svm_model, newdata = test_data)
+conf_matrix <- table(True = test_data$y, Predicted = predictions)
+
+print(conf_matrix)
+```
+
+##
+
+Comment on the confusion matrix.  How have we improved upon the model in question 2 and what qualifications are still necessary for this improved model.  
+
+
+*Student Response*
+The overall accuracy (88/100 = 88%) is slightly lower than the previous model (92%).While achieving a modest enhancement in precision for class 2 predictions, it slightly compromises on sensitivity for class 1. This shift underscores the delicate balance required in parameter tuning, particularly in the context of class imbalance and the inherent complexity of the data's distribution. A more exhaustive parameter optimization, considering a wider range of cost and gamma values, could fine-tune its sensitivity and specificity, potentially yielding a more balanced and effective model.
+
+# 
+Let's turn now to decision trees.  
+
+```{r}
+
+library(kmed)
+data(heart)
+library(tree)
+library(dbplyr)
+```
+
+## 
+
+The response variable is currently a categorical variable with four levels.  Convert heart disease into binary categorical variable.  Then, ensure that it is properly stored as a factor. 
+
+```{r}
+
+heart$class <- as.factor(heart$class)
+```
+
+## 
+
+Train a classification tree on a 240 observation training subset (using the seed I have set for you).  Plot the tree.  
+
+```{r}
+
+
+set.seed(101)
+train=sample(1:nrow(heart), 240)
+tree.heart = tree(class~.-class, heart, subset = train)
+plot(tree.heart)
+text(tree.heart, pretty = 0)
+```
+
+
+## 
+
+Use the trained model to classify the remaining testing points.  Create a confusion matrix to evaluate performance.  Report the classification error rate.  
+
+```{r}
+tree.pred = predict(tree.heart, heart[-train,], type="class")
+table2 <- with(heart[-train,], table(tree.pred, class))
+table2
+
+accuracy <- function(x){
+  sum(diag(x))/sum(rowSums(x))*100
+}
+
+accuracy(table2)
+```
+
+##  
+
+Above we have a fully grown (bushy) tree.  Now, cross validate it using the `cv.tree` command.  Specify cross validation to be done according to the misclassification rate.  Choose an ideal number of splits, and plot this tree.  Finally, use this pruned tree to test on the testing set.  Report a confusion matrix and the misclassification rate.  
+
+```{r}
+set.seed(1000)
+cv.heart <- cv.tree(tree.heart, FUN = prune.misclass)
+cv.heart
+
+plot(cv.heart$size, cv.heart$dev, type = "b")
+
+prune.heart <- prune.misclass(tree.heart, best = 4)
+
+plot(prune.heart)
+text(prune.heart, pretty=0)
+
+tree.pred = predict(prune.heart, heart[-train,], type="class")
+table3 <- with(heart[-train,], table(tree.pred, class))
+table3
+
+accuracy(table3)
+```
+
+
+
+##
+
+Discuss the trade-off in accuracy and interpretability in pruning the above tree. 
+
+*Student Input *
+
+Although the pruned tree experienced a slight decrease in accuracy, dropping from 61.4% to 59.6%, it gained significantly in interpretability by reducing to just four outcomes. This compromise maintains the bulk of the model's accuracy while incurring minimal losses.
+## 
+
+Discuss the ways a decision tree could manifest algorithmic bias.  
+
+*Student Answer*
+
+Decision trees can manifest algorithmic bias through biased training data, subjective feature selection, and flawed labeling practices, leading to models that perpetuate existing societal inequities. Mitigating these biases requires careful scrutiny of data and modeling processes, alongside continuous monitoring for fairness in outcomes.
+
+
+
+
